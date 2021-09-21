@@ -1,0 +1,31 @@
+[package]
+name = "threema-rs"
+version = "0.1.0"
+authors = ["Jonathan Krebs <jonathan.krebs@fau.de>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bytes = "*"
+prost = "*"
+sodiumoxide = "*"
+base32 = "*"
+base64 = "*"
+rpassword = "5"
+rust-crypto = "^0.2"
+getrandom = "*"
+anyhow = "*"
+hex = "*"
+reqwest = {version="*", features=["blocking", "json"]}
+flate2 = "*"
+serde = "*"
+serde_json = "*"
+thiserror = "*"
+
+
+tokio = { version = "1.11.0", features = ["full"] }
+
+[build-dependencies]
+prost-build = "*"
+
