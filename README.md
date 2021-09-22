@@ -29,7 +29,7 @@ When ready, this will be a rust library crate and API doc will be there.
 At the time, it's a bunch of experimental binaries.
 
 ## License
-As I heavily looked into [Threema for Android](https://github.com/threema-ch/threema-android/), this protocol port is licensed under the [GNU Affero General Public License v3](agpl-3.0.md) aswell.
+As I heavily looked into [Threema for Android](https://github.com/threema-ch/threema-android/), this protocol port is licensed under the [GNU Affero General Public License v3](LICENSE.md) aswell.
 
 
     Threema Protocol Library
