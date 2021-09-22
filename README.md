@@ -1,6 +1,6 @@
 # Inofficial Rust Implementation of the Threema Protocols
 
-work in progress.
+## work in progress.
  - [ ] split main to library and example(s)
  - [ ] account import
    - [x] threema safe
@@ -23,5 +23,27 @@ work in progress.
    - [ ] registration (POC DONE in python)
  - [ ] blob API
 
+
+## Usage
+When ready, this will be a rust library crate and API doc will be there.
+At the time, it's a bunch of experimental binaries.
+
 ## License
 As I heavily looked into [Threema for Android](https://github.com/threema-ch/threema-android/), this protocol port is licensed under the [GNU Affero General Public License v3](agpl-3.0.md) aswell.
+
+
+    Threema Protocol Library
+    Copyright (C) 2021 thejonny
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as
+    published by the Free Software Foundation, either version 3 of the
+    License, or (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
