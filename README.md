@@ -1,7 +1,5 @@
 # Inofficial Rust Implementation of the Threema Protocols
 
-As I heavily looked into [Threema for Android](https://github.com/threema-ch/threema-android/), this protocol port is licensed under the GNU Affero General Public License v3 aswell.
-
 work in progress.
  - [ ] split main to library and example(s)
  - [ ] account import
@@ -20,7 +18,10 @@ work in progress.
      - [ ] process ack
 	 - [ ] keep message while connection is down
  - [ ] directory API
-  - [x] lookup public key
-  - [ ] ...
-  - [ ] registration (POC DONE in python)
+   - [x] lookup public key
+   - [ ] ...
+   - [ ] registration (POC DONE in python)
  - [ ] blob API
+
+## License
+As I heavily looked into [Threema for Android](https://github.com/threema-ch/threema-android/), this protocol port is licensed under the [GNU Affero General Public License v3](agpl-3.0.md) aswell.
