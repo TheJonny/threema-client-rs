@@ -8,6 +8,7 @@ pub mod directory_api;
 mod threema_id;
 pub use threema_id::{ThreemaID, InvalidID};
 
+use env_logger;
 
 
 pub mod pltypes{
@@ -114,25 +115,24 @@ impl AddressBook {
 
 pub struct Agent {
     creds: Credentials,
-    con: transport::Connection,
+    r: transport::ReadHalf,
+    w: transport::WriteHalf,
     contacts: AddressBook,
 }
 
 impl Agent {
     pub async fn new(creds: Credentials) -> anyhow::Result<Self>{
         use transport::{SERVER, ThreemaServer};
-        let server = ThreemaServer {addr: SERVER, pk: naclbox::PublicKey::from_slice(b"E\x0b\x97W5'\x9f\xde\xcb3\x13d\x8f_\xc6\xee\x9f\xf46\x0e\xa9*\x8c\x17Q\xc6a\xe4\xc0\xd8\xc9\t").unwrap()};
-        let mut con = transport::Connection::connect(&server).await?;
-        println!("connected!");
-        con.login(&creds).await?;
+        let server = ThreemaServer {addr: SERVER.to_string(), pk: naclbox::PublicKey::from_slice(b"E\x0b\x97W5'\x9f\xde\xcb3\x13d\x8f_\xc6\xee\x9f\xf46\x0e\xa9*\x8c\x17Q\xc6a\xe4\xc0\xd8\xc9\t").unwrap()};
+        let (r, w) = transport::connect(&server, &creds).await?;
         println!("logged in!");
         let contacts = AddressBook::default();
 
-        Ok(Agent{creds, con, contacts})
+        Ok(Agent{creds, r, w, contacts})
     }
     pub async fn listen(&mut self) -> anyhow::Result<()>{
         loop {
-            let p = self.con.receive_packet().await?;
+            let p = self.r.receive_packet().await?;
             self.handle_packet(&p).await?;
         }
     }
@@ -144,7 +144,7 @@ impl Agent {
         match msg_type {
             TEXT => {
                 println!("{:?} ({}) => {:?}: {}", envelope.sender, envelope.nickname, &envelope.recipient, String::from_utf8_lossy(msg));
-                let _res = self.con.send_ack(envelope).await;
+                let _res = self.w.send_ack(envelope).await;
             }
             TYPING_INDICATOR => {
                 if msg.len() < 1 {
@@ -214,6 +214,7 @@ impl Agent {
 #[tokio::main]
 async fn main() -> anyhow::Result<()>{
     sodiumoxide::init().expect("failed sodium initialisation");
+    env_logger::init();
 
     let args = std::env::args().collect::<Vec<_>>();
     let f = args.get(1).context("missing arg")?;

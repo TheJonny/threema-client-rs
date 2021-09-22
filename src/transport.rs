@@ -43,82 +43,90 @@ impl Iterator for NonceCounter{
     }
 }
 
-
-
-pub struct Connection {
-    my_esk: naclbox::SecretKey,
-    my_epk: naclbox::PublicKey,
-    their_epk: naclbox::PublicKey,
-    their_pk: naclbox::PublicKey,
-    sock: tokio::net::TcpStream,
-    my_nonces: NonceCounter,
+pub struct ReadHalf {
     their_nonces: NonceCounter,
+    sock: tokio::net::tcp::OwnedReadHalf,
+    shared_key: naclbox::PrecomputedKey,
+}
+pub struct WriteHalf {
+    my_nonces: NonceCounter,
+    sock: tokio::net::tcp::OwnedWriteHalf,
+    shared_key: naclbox::PrecomputedKey,
 }
 
-pub struct ThreemaServer<'a> {
-    pub addr: &'a str,
+pub struct ThreemaServer {
+    pub addr: String,
     pub pk: naclbox::PublicKey,
 }
 
-impl Connection {
-    pub async fn connect<'a>(addr: &ThreemaServer<'a>) -> io::Result<Self>{
-        let my_nonces = NonceCounter::random();
-        let (my_epk,my_esk) = naclbox::gen_keypair();
-        let mut sock = tokio::net::TcpStream::connect(addr.addr).await.expect("could not connect :/");
-        // client hello
-        sock.write_all(my_epk.as_ref() ).await?;
-        sock.write_all(my_nonces.prefix.as_ref()).await?;
-        sock.flush().await?;
+/// Open TCP connection to a Threema Server and do the handshake.
+pub async fn connect(addr: &ThreemaServer, creds: &Credentials) -> io::Result<(ReadHalf, WriteHalf)>{
+    let my_nonces = NonceCounter::random();
+    let (my_epk,my_esk) = naclbox::gen_keypair();
+    let mut sock = tokio::net::TcpStream::connect(&addr.addr).await.expect("could not connect :/");
+    // client hello, send my epk
+    sock.write_all(my_epk.as_ref() ).await?;
+    sock.write_all(my_nonces.prefix.as_ref()).await?;
+    sock.flush().await?;
+    log::trace!("sent client hello");
 
-        // server hello
-        let mut their_nonce_prefix = NoncePrefix::default();
-        sock.read_exact(&mut their_nonce_prefix).await?;
-        let mut their_nonces = NonceCounter::with_prefix(their_nonce_prefix);
-        let mut hellobox = [0u8; naclbox::PUBLICKEYBYTES + PREFIXBYTES + naclbox::MACBYTES];
-        sock.read_exact(&mut hellobox).await?;
-        let server_hello = naclbox::open(&hellobox, &their_nonces.next().unwrap(), &addr.pk, &my_esk).
-            map_err(|_| io::Error::new(io::ErrorKind::Other, "decryption error in server hello"))?;
-        let their_epk = naclbox::PublicKey::from_slice(&server_hello[..naclbox::PUBLICKEYBYTES]).unwrap();
-        let my_nonce_prefix_again = &server_hello[naclbox::PUBLICKEYBYTES .. naclbox::PUBLICKEYBYTES + PREFIXBYTES];
-        if my_nonce_prefix_again != &my_nonces.prefix {
-            return Err(io::Error::new(io::ErrorKind::Other, "verification error while checking client nonce"));
-        }
-
-        Ok(Connection{my_esk, my_epk, their_pk: addr.pk.clone(), their_epk, sock, my_nonces, their_nonces})
+    // server hello, verify server has its longtime key, receive server epk
+    let mut their_nonce_prefix = NoncePrefix::default();
+    sock.read_exact(&mut their_nonce_prefix).await?;
+    let mut their_nonces = NonceCounter::with_prefix(their_nonce_prefix);
+    let mut hellobox = [0u8; naclbox::PUBLICKEYBYTES + PREFIXBYTES + naclbox::MACBYTES];
+    sock.read_exact(&mut hellobox).await?;
+    log::trace!("received server hello");
+    let server_hello = naclbox::open(&hellobox, &their_nonces.next().unwrap(), &addr.pk, &my_esk).
+        map_err(|_| io::Error::new(io::ErrorKind::Other, "decryption error in server hello"))?;
+    log::trace!("decrypted server hello");
+    let their_epk = naclbox::PublicKey::from_slice(&server_hello[..naclbox::PUBLICKEYBYTES]).unwrap();
+    let my_nonce_prefix_again = &server_hello[naclbox::PUBLICKEYBYTES .. naclbox::PUBLICKEYBYTES + PREFIXBYTES];
+    // TODO what does this proof again?
+    if my_nonce_prefix_again != &my_nonces.prefix {
+        return Err(io::Error::new(io::ErrorKind::Other, "verification error while checking client nonce"));
     }
+    log::trace!("stage 1 connected");
 
-    pub async fn login(&mut self, u: &Credentials) -> io::Result<()>{
-        let mut vouchenonce = [0u8; naclbox::NONCEBYTES];
-        getrandom(&mut vouchenonce)?;
-        let mut vouchbox = naclbox::seal(self.my_epk.as_ref(), &naclbox::Nonce::from_slice(&vouchenonce).unwrap(), &self.their_pk, &u.sk);
+    let shared_key = naclbox::precompute(&their_epk, &my_esk);
+    let (rs,ws) = sock.into_split();
+    let mut rh = ReadHalf { shared_key: shared_key.clone(), their_nonces, sock: rs};
+    let mut wh = WriteHalf { shared_key, my_nonces, sock: ws};
+    
+    
+    // login: tell the server my identity and proof that i own my secret key
+    let mut vouchenonce = [0u8; naclbox::NONCEBYTES];
+    getrandom(&mut vouchenonce)?;
+    let mut vouchbox = naclbox::seal(my_epk.as_ref(), &naclbox::Nonce::from_slice(&vouchenonce).unwrap(), &addr.pk, &creds.sk);
 
-        let mut request = Vec::<u8>::new();
-        request.extend_from_slice(u.id.as_ref());
-        let mut version = [0u8; 32];
-        let mut version_wr = &mut version[..];
-        version_wr.write_all("rustyclient;O;;archlinux".as_bytes())?;
-        request.extend_from_slice(&version);
-        request.extend_from_slice(&self.their_nonces.prefix);
-        request.extend_from_slice(&vouchenonce);
-        request.append(&mut vouchbox);
-        self.encrypt_and_send(&request).await?;
+    let mut request = Vec::<u8>::new();
+    request.extend_from_slice(creds.id.as_ref());
+    let mut version = [0u8; 32];
+    let mut version_wr = &mut version[..];
+    version_wr.write_all("rustyclient;O;;archlinux".as_bytes())?;
+    request.extend_from_slice(&version);
+    request.extend_from_slice(&rh.their_nonces.prefix);
+    request.extend_from_slice(&vouchenonce);
+    request.append(&mut vouchbox);
+    wh.encrypt_and_send(&request).await?;
+    log::trace!("sent login vouch");
 
-        self.receive_and_decrypt(16).await?; // reserved bunch of zeros
-        Ok(())
-    }
+    // verify 
+    rh.receive_and_decrypt(16).await?; // reserved bunch of zeros.
+    log::trace!("received login ack");
+    Ok((rh, wh))
+}
 
-    async fn encrypt_and_send(&mut self, plaintext: &[u8]) -> io::Result<()>{
-        let ct = naclbox::seal(plaintext, &self.my_nonces.next().unwrap(), &self.their_epk, &self.my_esk);
-        self.sock.write_all(&ct).await
-    }
-
+impl ReadHalf {
     async fn receive_and_decrypt(&mut self, sz: usize) -> io::Result<Vec<u8>> {
         let mut buf = vec![0u8; sz + naclbox::MACBYTES];
         self.sock.read_exact(&mut buf).await?;
-        naclbox::open(&buf, &self.their_nonces.next().unwrap(), &self.their_epk, &self.my_esk)
+        log::trace!("received data");
+        naclbox::open_precomputed(&buf, &self.their_nonces.next().unwrap(), &self.shared_key)
             .map_err(|_| io::Error::new(io::ErrorKind::Other, "validation failed in receive"))
     }
     pub async fn receive_packet(&mut self) -> io::Result<Vec<u8>> {
+        log::trace!("receiving length");
         let mut lenbuf = [0;2];
         self.sock.read_exact(&mut lenbuf).await?;
         let len = lenbuf[0] as usize + 256 * (lenbuf[1] as usize);
@@ -126,14 +134,22 @@ impl Connection {
         if len < naclbox::MACBYTES {
             return Err(io::Error::new(io::ErrorKind::Other, "received to short length"));
         }
-        println!("receiving {} bytes...", len);
+        log::trace!("receiving {} bytes...", len);
         return self.receive_and_decrypt(len-naclbox::MACBYTES).await;
+    }
+}
+impl WriteHalf {
+    async fn encrypt_and_send(&mut self, plaintext: &[u8]) -> io::Result<()>{
+        let ct = naclbox::seal_precomputed(plaintext, &self.my_nonces.next().unwrap(), &self.shared_key);
+        log::trace!("sending encryped data");
+        self.sock.write_all(&ct).await
     }
     pub async fn send_packet(&mut self, packet: &[u8]) -> io::Result<()>{
         let n = packet.len() + naclbox::MACBYTES;
         if n > (u16::MAX as usize) {
             return Err(io::Error::new(io::ErrorKind::Other, "Packet too long for 16 bit length field"));
         }
+        log::trace!("sending length {}...", n);
         self.sock.write_all(&(n as u16).to_le_bytes()).await?;
         self.encrypt_and_send(packet).await?;
         Ok(())
@@ -160,6 +176,7 @@ pub struct Envelope{
     pub nonce: naclbox::Nonce,
 }
 impl Envelope{
+    // TODO: exclude nonce - not usefull here!
     pub const SIZE: usize = 92;
 
     pub fn from_buf(data: &[u8]) -> Result<Envelope, ParseError> {

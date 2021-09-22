@@ -15,16 +15,21 @@ base64 = "*"
 rpassword = "5"
 rust-crypto = "^0.2"
 getrandom = "*"
-anyhow = "*"
 hex = "*"
 reqwest = {version="*", features=["blocking", "json"]}
 flate2 = "*"
 serde = "*"
 serde_json = "*"
+anyhow = "*"
 thiserror = "*"
 
+futures-core = "*"
+async-stream = "*"
 
 tokio = { version = "1.11.0", features = ["full"] }
+
+log = "*"
+env_logger = "*"
 
 [build-dependencies]
 prost-build = "*"
