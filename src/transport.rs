@@ -164,7 +164,7 @@ impl WriteHalf {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Envelope{
     pub pltype: u32,
     pub sender: ThreemaID,
@@ -173,11 +173,9 @@ pub struct Envelope{
     pub time: u32,
     pub flags: u32,
     pub nickname: String,
-    pub nonce: naclbox::Nonce,
 }
 impl Envelope{
-    // TODO: exclude nonce - not usefull here!
-    pub const SIZE: usize = 92;
+    pub const SIZE: usize = 68;
 
     pub fn from_buf(data: &[u8]) -> Result<Envelope, ParseError> {
         if data.len() < Self::SIZE {
@@ -190,11 +188,10 @@ impl Envelope{
         let time = u32::from_le_bytes(data[28..32].try_into().unwrap());
         let flags = u32::from_le_bytes(data[32..36].try_into().unwrap());
         let nickname_buf = &data[36..68];
-        let nonce = naclbox::Nonce::from_slice(&data[68..92]).unwrap();
 
         let nickname_len = nickname_buf.iter().take_while(|b| **b != 0).count();
         let nickname = String::from_utf8_lossy(&nickname_buf[0..nickname_len]).to_string();
-        return Ok(Envelope{pltype, sender, recipient, id, time, flags, nickname, nonce});
+        return Ok(Envelope{pltype, sender, recipient, id, time, flags, nickname});
     }
     pub fn to_buf(&self, data: &mut [u8]) {
         data[0..4].copy_from_slice(&self.pltype.to_le_bytes());
@@ -208,7 +205,6 @@ impl Envelope{
             panic!("nickname to long");
         }
         data[36.. 36+self.nickname.len()].copy_from_slice(self.nickname.as_bytes());
-        data[68..92].copy_from_slice(self.nonce.as_ref());
     }
 }
 

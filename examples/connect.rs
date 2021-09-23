@@ -84,9 +84,13 @@ impl Agent {
                 let h = transport::Envelope::from_buf(&packet)?;
                 println!("{:?}", &h);
                 let boxed_content = &packet[transport::Envelope::SIZE ..];
+                if boxed_content.len() < naclbox::NONCEBYTES {
+                    return Err(ParseError::ToShort{expected: naclbox::NONCEBYTES, got: boxed_content.len()});
+                }
+                let nonce = naclbox::Nonce::from_slice(&boxed_content[0..naclbox::NONCEBYTES]).unwrap();
                 match self.contacts.lookup(&h.sender).await {
                     Ok(their_pk) => {
-                        match naclbox::open(boxed_content, &h.nonce, &their_pk, &self.creds.sk) {
+                        match naclbox::open(&boxed_content[naclbox::NONCEBYTES..], &nonce, &their_pk, &self.creds.sk) {
                             Err(_) => println!("Decryption or verification failed"),
                             Ok(mut msg) =>{
                                 if msg.len() < 1 {
