@@ -36,6 +36,7 @@ For account registration, the official mobile app or a license purchased in the 
   It would be nice to bridge arbitrary webrtc offers/responses, to bridge it to any other network that uses webrtc.
  - [ ] publish crate, when usable
  - [ ] publish rustoc
+ - [ ] De-tokio-ize the threema protocol transport (make it usable without massive dependencies and from synchronous code)
 
 ## Thanks
  - to Roland Schilling and Frieder Steinmetz, who presented a great protocol overview at 33C3 in 2016 ([Recording and Slides](https://fahrplan.events.ccc.de/congress/2016/Fahrplan/events/8062.html)) and did a [Go implementation `o3ma`](https://github.com/o3ma/o3/)
