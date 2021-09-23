@@ -43,7 +43,7 @@ For account registration, the official mobile app or a license purchased in the 
  - to [Threema](https://threema.ch) for releasing their code as [open source](https://github.com/threema-ch) in 2020
 
 ## Usage
-When ready, this will be a rust library crate and API doc will be there. Also the bunch of experimental binaries can be used.
+When ready, this will be a rust library crate `threema_client` and API doc will be there. Also the bunch of experimental binaries can be used.
 
 Currentliy, accounts are saved plaintext json and can be generated with the register/load programs.
 

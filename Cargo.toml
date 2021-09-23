@@ -1,5 +1,5 @@
 [package]
-name = "threema-rs"
+name = "threema-client"
 version = "0.1.0"
 authors = ["Jonathan Krebs <jonathan.krebs@fau.de>"]
 edition = "2018"

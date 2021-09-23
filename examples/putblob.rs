@@ -1,5 +1,5 @@
 use tokio;
-use threema_rs::blob_api;
+use threema_client::blob_api;
 use std::io::prelude::*;
 use std::io::BufReader;
 use env_logger;

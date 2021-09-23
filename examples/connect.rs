@@ -3,7 +3,7 @@ use tokio;
 use anyhow::Context;
 use std::convert::TryInto;
 
-use threema_rs::*;
+use threema_client::*;
 
 #[derive(Default)]
 pub struct AddressBook{
