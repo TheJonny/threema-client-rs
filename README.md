@@ -21,7 +21,8 @@
    - [x] lookup public key
    - [ ] ...
    - [ ] registration (POC DONE in python)
- - [ ] blob API
+ - [x] blob API
+  - [ ] streaming support to reduce memory and provide progress
 
 
 ## Usage
