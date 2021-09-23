@@ -16,7 +16,7 @@ rpassword = "5"
 rust-crypto = "^0.2"
 getrandom = "*"
 hex = "*"
-reqwest = {version="*", features=["blocking", "json"]}
+reqwest = {version="*", features=["blocking", "json", "multipart"]}
 flate2 = "*"
 serde = "*"
 serde_json = "*"
