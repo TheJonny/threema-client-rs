@@ -1,7 +1,7 @@
 # Inofficial Rust Implementation of the Threema Protocols
 
 ## work in progress.
- - [ ] split main to library and example(s)
+ - [x] split main to library and example(s)
  - [ ] account import
    - [x] threema safe
    - [x] id backup
