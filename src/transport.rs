@@ -1,5 +1,10 @@
 /// Threema Transport Layer
 
+// TODO: use some nice abstraction for byte parsing/serialisation.
+// at the moment, i just used stdlib stuff like clone_from_slice and to_le_bytes,
+// to not lose focus in nice parsing, and it works - but much of the [u8] slicing
+// code should just be trashed...
+
 use sodiumoxide::crypto::stream::xsalsa20;
 use std::io;
 use std::io::Write;
