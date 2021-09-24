@@ -13,6 +13,7 @@ use tokio::io::{AsyncReadExt,AsyncWriteExt};
 use std::convert::TryInto;
 use tokio;
 use crate::{ThreemaID, naclbox, Credentials, ParseError, pltypes};
+use anyhow;
 
 pub const SERVER : &str = "ds.g-00.0.threema.ch:5222";
 
@@ -59,6 +60,7 @@ pub struct WriteHalf {
     shared_key: naclbox::PrecomputedKey,
 }
 
+#[derive(Clone, Debug)]
 pub struct ThreemaServer {
     pub addr: String,
     pub pk: naclbox::PublicKey,
@@ -130,7 +132,7 @@ impl ReadHalf {
         naclbox::open_precomputed(&buf, &self.their_nonces.next().unwrap(), &self.shared_key)
             .map_err(|_| io::Error::new(io::ErrorKind::Other, "validation failed in receive"))
     }
-    pub async fn receive_packet(&mut self) -> io::Result<Vec<u8>> {
+    pub async fn receive_frame(&mut self) -> io::Result<Vec<u8>> {
         log::trace!("receiving length");
         let mut lenbuf = [0;2];
         self.sock.read_exact(&mut lenbuf).await?;
@@ -142,6 +144,32 @@ impl ReadHalf {
         log::trace!("receiving {} bytes...", len);
         return self.receive_and_decrypt(len-naclbox::MACBYTES).await;
     }
+    pub async fn receive_packet(&mut self) -> anyhow::Result<Packet> {
+        let f = self.receive_frame().await?;
+        if f.len() < 4 {
+            return Ok(Packet::Raw(f)); // TODO parse
+        }
+        let pltype = u32::from_le_bytes(f[0..4].try_into().unwrap());
+        let payload = &f[4..];
+        let packet = match pltype {
+            pltypes::INCOMING_MESSAGE_ACK => (Packet::AckDownload(Ack::from_buf(payload)?)),
+            pltypes::OUTGOING_MESSAGE_ACK => (Packet::AckDownload(Ack::from_buf(payload)?)),
+            pltypes::INCOMING_MESSAGE => (Packet::BoxedMessageDownload(BoxedMessage::from_slice(payload)?)),
+            pltypes::OUTGOING_MESSAGE => (Packet::BoxedMessageUpload(BoxedMessage::from_slice(payload)?)),
+            pltypes::ECHO_REPLY => (Packet::EchoReply(u32::from_le_bytes(payload.try_into()?))),
+            pltypes::ECHO_REQUEST => (Packet::EchoRequest(u32::from_le_bytes(payload.try_into()?))),
+            pltypes::QUEUE_SEND_COMPLETE => (Packet::QueueSendComplete),
+            pltypes::ALERT => (Packet::Alert(String::from_utf8_lossy(payload).to_string())),
+            pltypes::ERROR => {
+                let reconnect_allowed = *payload.get(0).ok_or(ParseError::ToShort{expected:1,got:0})? != 0;
+                let message = String::from_utf8_lossy(&payload[1..]).to_string();
+                Packet::Error((reconnect_allowed, message))
+            }
+            // PUSH stuff not implemented
+            _unknown => (Packet::Raw(f))
+        };
+        Ok(packet)
+    }
 }
 impl WriteHalf {
     async fn encrypt_and_send(&mut self, plaintext: &[u8]) -> io::Result<()>{
@@ -149,7 +177,7 @@ impl WriteHalf {
         log::trace!("sending encryped data");
         self.sock.write_all(&ct).await
     }
-    pub async fn send_packet(&mut self, packet: &[u8]) -> io::Result<()>{
+    pub async fn send_frame(&mut self, packet: &[u8]) -> io::Result<()>{
         let n = packet.len() + naclbox::MACBYTES;
         if n > (u16::MAX as usize) {
             return Err(io::Error::new(io::ErrorKind::Other, "Packet too long for 16 bit length field"));
@@ -159,19 +187,31 @@ impl WriteHalf {
         self.encrypt_and_send(packet).await?;
         Ok(())
     }
-    pub async fn send_ack(&mut self, original_envelope: &Envelope) -> anyhow::Result<()> {
-        let mut buf = [0; Ack::SIZE];
-        Ack{sender: original_envelope.sender, message_id: original_envelope.id, pltype: pltypes::INCOMING_MESSAGE_ACK}.to_buf(&mut buf);
-        self.send_packet(&buf).await?;
+    pub async fn send_download_ack(&mut self, original_envelope: &Envelope) -> anyhow::Result<()> {
+        let mut buf = [0; 4+Ack::SIZE];
+        buf[0..4].copy_from_slice(&pltypes::INCOMING_MESSAGE_ACK.to_le_bytes());
+        Ack{partner: original_envelope.sender, message_id: original_envelope.id, }.to_buf(&mut buf);
+        self.send_frame(&buf).await?;
         Ok(())
-
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum Packet{
+    Raw(Vec<u8>),
+    BoxedMessageUpload(BoxedMessage),
+    BoxedMessageDownload(BoxedMessage),
+    AckUpload(Ack),
+    AckDownload(Ack),
+    EchoRequest(u32),
+    EchoReply(u32),
+    QueueSendComplete,
+    Alert(String),
+    Error((bool, String)),
+}
 
 #[derive(Debug, Clone)]
 pub struct Envelope{
-    pub pltype: u32,
     pub sender: ThreemaID,
     pub recipient: ThreemaID,
     pub id: u64,
@@ -180,32 +220,32 @@ pub struct Envelope{
     pub nickname: String,
 }
 impl Envelope{
-    pub const SIZE: usize = 68;
+    pub const SIZE: usize = 64;
 
     pub fn from_buf(data: &[u8]) -> Result<Envelope, ParseError> {
         if data.len() < Self::SIZE {
             return Err(ParseError::ToShort{expected:Self::SIZE, got: data.len()})
         }
-        let pltype = u32::from_le_bytes(data[0..4].try_into().unwrap());
-        let sender = data[4..12].try_into().unwrap();
-        let recipient = data[12..20].try_into().unwrap();
-        let id = u64::from_le_bytes(data[20..28].try_into().unwrap());
-        let time = u32::from_le_bytes(data[28..32].try_into().unwrap());
-        let flags = u32::from_le_bytes(data[32..36].try_into().unwrap());
-        let nickname_buf = &data[36..68];
+        //let pltype = u32::from_le_bytes(data[0..4].try_into().unwrap());
+        let sender = data[0..8].try_into().unwrap();
+        let recipient = data[8..16].try_into().unwrap();
+        let id = u64::from_le_bytes(data[16..24].try_into().unwrap());
+        let time = u32::from_le_bytes(data[24..28].try_into().unwrap());
+        let flags = u32::from_le_bytes(data[28..32].try_into().unwrap());
+        let nickname_buf = &data[32..64];
 
         let nickname_len = nickname_buf.iter().take_while(|b| **b != 0).count();
         let nickname = String::from_utf8_lossy(&nickname_buf[0..nickname_len]).to_string();
-        return Ok(Envelope{pltype, sender, recipient, id, time, flags, nickname});
+        return Ok(Envelope{sender, recipient, id, time, flags, nickname});
     }
     pub fn to_buf(&self, data: &mut [u8]) {
-        data[0..4].copy_from_slice(&self.pltype.to_le_bytes());
-        data[4..12].copy_from_slice(self.sender.as_ref());
-        data[12..20].copy_from_slice(self.recipient.as_ref());
-        data[20..28].copy_from_slice(&self.id.to_le_bytes());
-        data[28..32].copy_from_slice(&self.time.to_le_bytes());
-        data[32..36].copy_from_slice(&self.flags.to_le_bytes());
-        data[36..68].fill(0);
+        //data[0..4].copy_from_slice(&self.pltype.to_le_bytes());
+        data[0..8].copy_from_slice(self.sender.as_ref());
+        data[8..16].copy_from_slice(self.recipient.as_ref());
+        data[16..24].copy_from_slice(&self.id.to_le_bytes());
+        data[24..28].copy_from_slice(&self.time.to_le_bytes());
+        data[28..32].copy_from_slice(&self.flags.to_le_bytes());
+        data[32..64].fill(0);
         if self.nickname.len() > 32 {
             panic!("nickname to long");
         }
@@ -213,26 +253,69 @@ impl Envelope{
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct BoxedMessage{
+    pub envelope: Envelope,
+    pub payload: Vec<u8>,
+}
+impl BoxedMessage {
+    pub fn from_slice(data: &[u8]) -> Result<BoxedMessage, ParseError>{
+        let minlen = Envelope::SIZE + naclbox::NONCEBYTES + naclbox::MACBYTES;
+        if data.len() < minlen {
+            return Err(ParseError::ToShort{got: data.len(), expected: minlen});
+        }
+        let envelope = Envelope::from_buf(&data[0..Envelope::SIZE])?;
+        let payload = data[Envelope::SIZE..].into();
+        Ok(BoxedMessage{envelope, payload})
+    }
+    pub fn open(&self, pk: &naclbox::PublicKey, sk: &naclbox::SecretKey) -> Result<Vec<u8>, ParseError> {
+        let minlen = naclbox::NONCEBYTES + naclbox::MACBYTES;
+        if self.payload.len() < minlen {
+            return Err(ParseError::ToShort{got: self.payload.len(), expected: minlen});
+        }
+        let nonce = naclbox::Nonce::from_slice(&self.payload[0..naclbox::NONCEBYTES]).unwrap();
+        match naclbox::open(&self.payload[naclbox::NONCEBYTES..], &nonce, &pk, &sk) {
+            Err(_) => Err(ParseError::DecryptionError),
+            Ok(mut msg) =>{
+                if msg.len() < 1 {
+                    Ok(vec![])
+                }
+                else{
+                    let padsz = *msg.last().unwrap() as usize;
+                    if msg.len() <= padsz {
+                        Err(ParseError::InvalidPadding)
+                    }
+                    else {
+                        msg.truncate(msg.len() - padsz);
+                        Ok(msg)
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Ack{
-    pltype: u32,
-    sender: ThreemaID,
+//    pltype: u32,
+    partner: ThreemaID,
     message_id: u64,
 }
 
 impl Ack{
-    pub const SIZE: usize = 20;
+    pub const SIZE: usize = 16;
     pub fn to_buf(&self, data: &mut [u8]){
-        data[0..4].copy_from_slice(&self.pltype.to_le_bytes());
-        data[4..12].copy_from_slice(self.sender.as_ref());
-        data[12..20].copy_from_slice(&self.message_id.to_le_bytes());
+        data[0..8].copy_from_slice(self.partner.as_ref());
+        data[8..16].copy_from_slice(&self.message_id.to_le_bytes());
     }
     pub fn from_buf(data: &[u8]) -> Result<Self, ParseError>{
         if data.len() < Self::SIZE {
             return Err(ParseError::ToShort{expected:Self::SIZE, got: data.len()})
         }
-        let pltype = u32::from_le_bytes(data[0..4].try_into().unwrap());
-        let sender = data[4..12].try_into().unwrap();
-        let message_id = u64::from_le_bytes(data[12..20].try_into().unwrap());
-        Ok(Ack{pltype, sender, message_id})
+        //let pltype = u32::from_le_bytes(data[0..4].try_into().unwrap());
+        let partner = data[0..8].try_into().unwrap();
+        let message_id = u64::from_le_bytes(data[8..16].try_into().unwrap());
+        Ok(Ack{partner, message_id})
     }
 }

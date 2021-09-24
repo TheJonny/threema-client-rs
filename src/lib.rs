@@ -87,4 +87,6 @@ pub enum ParseError {
     InvalidUTF8,
     #[error("Decryption or verification failed")]
     DecryptionError,
+    #[error("Invalid padding")]
+    InvalidPadding,
 }
