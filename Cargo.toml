@@ -1,10 +1,11 @@
 [package]
 name = "threema-client"
 version = "0.1.0"
-authors = ["Jonathan Krebs <jonathan.krebs@fau.de>"]
+authors = ["thejonny"]
 edition = "2018"
 repository = "https://github.com/TheJonny/threema-client-rs"
 license = "AGPL-3.0-only"
+description = "WIP inofficial threema client implementation and tools"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
