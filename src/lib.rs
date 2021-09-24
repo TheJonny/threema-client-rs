@@ -27,7 +27,7 @@ pub mod pltypes{
 }
 
 pub mod transport;
-//pub mod connection_manager;
+pub mod messaging_client;
 
 pub struct Credentials{
     pub id: ThreemaID,
