@@ -1,17 +1,27 @@
 /// TODO: top comment
 
+/// alias for sodiumoxide::crypto::box_::curve25519xsalsa20poly1305, the used public key crypto
+/// suite. This `pub use` exists as long as `naclbox::PublicKey` and `naclbox::SecretKey` are part
+/// of this crate's API.
 pub use sodiumoxide::crypto::box_::curve25519xsalsa20poly1305 as naclbox;
 
 use std::convert::TryInto;
 
+/// utilities to import threema accounts from the mobile app
 pub mod import;
+
+/// access account- and keyserver
 pub mod directory_api;
+
+/// upload, download and delete files
 pub mod blob_api;
+
 mod threema_id;
 pub use threema_id::{ThreemaID, InvalidID};
 
 // TODO: move somewhere better
 pub mod pltypes{
+    /// Payload Types used in the transport protocol
     pub const ECHO_REQUEST : u32 =  0x00;
     pub const ECHO_REPLY : u32 =  0x80;
     pub const OUTGOING_MESSAGE : u32 =  0x01;
@@ -26,14 +36,18 @@ pub mod pltypes{
     pub const ALERT : u32 =  0xe1;
 }
 
+/// Threema Transport Layer
 pub mod transport;
+
+/// Managed connection using the `transport` layer
+/// (keep alive, reconnect, ack management)
 pub mod messaging_client;
 
+/// Account credentials: Threema-ID and SecretKey
 pub struct Credentials{
     pub id: ThreemaID,
     pub sk: naclbox::SecretKey,
 }
-
 
 impl Credentials{
     pub fn new(id: &str, sk: naclbox::SecretKey) -> Result<Self, InvalidID>{
@@ -41,6 +55,7 @@ impl Credentials{
     }
 }
 
+/// Message types used inside end-to-end messages
 pub mod msg_types{
     pub const TEXT: u8 = 0x01;
     pub const IMAGE: u8 = 0x02;
@@ -79,6 +94,7 @@ pub mod msg_types{
     pub const TYPING_INDICATOR: u8 = 0x90;
 }
 
+/// Collection of errors that could happen during protocol and message parsing
 #[derive(thiserror::Error, Debug)]
 pub enum ParseError {
     #[error("Packet to short for packet type: expected {expected}, got {got} bytes")]

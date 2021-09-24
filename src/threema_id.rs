@@ -1,6 +1,7 @@
 use thiserror;
 use std::convert::TryFrom;
 
+/// User Identity as 8 Bytes, like ECHOECHO
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ThreemaID {
     arr: [u8; ThreemaID::SIZE]
@@ -58,6 +59,7 @@ impl std::fmt::Display for ThreemaID {
     }
 }
 
+/// Tried to parse a malformed ID (not 8 ascii chars)
 #[derive(thiserror::Error, Debug)]
 #[error("Invalid ID Format (must be 8 ascii chars)")]
 pub struct InvalidID;
