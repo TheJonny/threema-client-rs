@@ -1,14 +1,13 @@
 use env_logger;
 use tokio;
 use anyhow::Context;
-use std::convert::TryInto;
 
 use threema_client::*;
 
 #[derive(Default)]
 pub struct AddressBook{
     key_cache: std::collections::HashMap<ThreemaID, naclbox::PublicKey>,
-    api: directory_api::Connector,
+    api: directory_api::Client,
 }
 
 impl AddressBook {
