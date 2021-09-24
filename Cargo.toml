@@ -10,30 +10,26 @@ description = "WIP inofficial threema client implementation and tools"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bytes = "*"
-prost = "*"
-sodiumoxide = "*"
-base32 = "*"
-base64 = "*"
+#prost = "*"
+sodiumoxide = "0.2"
+base32 = "0.4"
+base64 = "0.13"
 rpassword = "5"
 rust-crypto = "^0.2"
-getrandom = "*"
-hex = "*"
+getrandom = "0.2"
+hex = "0.4"
 reqwest = {version="*", features=["blocking", "json", "multipart"]}
-flate2 = "*"
-serde = "*"
-serde_json = "*"
-anyhow = "*"
-thiserror = "*"
+flate2 = "1"
+serde = "1"
+serde_json = "1"
+anyhow = "1"
+thiserror = "1"
 
-futures-core = "*"
-async-stream = "*"
+tokio = { version = "1.11", features = ["full"] }
 
-tokio = { version = "1.11.0", features = ["full"] }
+log = "0.4"
+env_logger = "0.9"
 
-log = "*"
-env_logger = "*"
-
-[build-dependencies]
-prost-build = "*"
+#[build-dependencies]
+#prost-build = "*"
 
