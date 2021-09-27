@@ -13,13 +13,13 @@ For account registration, the official mobile app or a license purchased in the 
    - [x] login
    - [x] receive/send frames
    - [x] decode/encode boxed messages
- - [ ] connection agent
-   - [ ] reconnect when connection dies
-   - [ ] keep alive echos
-   - [ ] receive event stream
-   - [ ] send messages
-     - [ ] process ack
-	 - [ ] keep message while connection is down
+ - [x] connection agent
+   - [x] reconnect when connection dies
+   - [x] keep alive echos
+   - [x] receive event stream
+   - [x] send messages
+     - [x] process ack
+	 - [x] keep message while connection is down
  - [ ] directory API
    - [x] lookup public key (`identity/<ID>`)
 	- [ ]`identity/fetch_bulk`
