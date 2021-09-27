@@ -5,24 +5,25 @@
 // to not lose focus in nice parsing, and it works - but much of the [u8] slicing
 // code should just be trashed...
 
-use sodiumoxide::crypto::stream::xsalsa20;
 use std::io;
 use std::io::Write;
 use getrandom::getrandom;
 use tokio::io::{AsyncReadExt,AsyncWriteExt};
 use std::convert::TryInto;
 use tokio;
-use crate::{ThreemaID, naclbox, Credentials, ParseError, pltypes};
+use crate::{ThreemaID, naclbox, Credentials, Peer, ParseError, pltypes};
 use anyhow;
+
+use rand::{self, Rng};
 
 pub const SERVER : &str = "ds.g-00.0.threema.ch:5222";
 
 
 pub struct NonceCounter{
-    prefix: [u8; xsalsa20::NONCEBYTES-8],
+    prefix: [u8; naclbox::NONCEBYTES-8],
     next_nonce: u64,
 }
-const PREFIXBYTES : usize = xsalsa20::NONCEBYTES - 8;
+const PREFIXBYTES : usize = naclbox::NONCEBYTES - 8;
 type NoncePrefix = [u8; PREFIXBYTES];
 impl NonceCounter {
     fn random() -> Self {
@@ -42,7 +43,7 @@ impl Iterator for NonceCounter{
         let mut nonce = [0u8; naclbox::NONCEBYTES];
         nonce[..naclbox::NONCEBYTES-8].clone_from_slice(&self.prefix);
         for i in 0..8 {
-            nonce[i+xsalsa20::NONCEBYTES-8] = (self.next_nonce >> (i * 8)) as u8;
+            nonce[i+naclbox::NONCEBYTES-8] = (self.next_nonce >> (i * 8)) as u8;
         }
         self.next_nonce = self.next_nonce.wrapping_add(1);
         naclbox::Nonce::from_slice(&nonce)
@@ -153,7 +154,7 @@ impl ReadHalf {
         let payload = &f[4..];
         let packet = match pltype {
             pltypes::INCOMING_MESSAGE_ACK => (Packet::AckDownload(Ack::from_buf(payload)?)),
-            pltypes::OUTGOING_MESSAGE_ACK => (Packet::AckDownload(Ack::from_buf(payload)?)),
+            pltypes::OUTGOING_MESSAGE_ACK => (Packet::AckUpload(Ack::from_buf(payload)?)),
             pltypes::INCOMING_MESSAGE => (Packet::BoxedMessageDownload(BoxedMessage::from_slice(payload)?)),
             pltypes::OUTGOING_MESSAGE => (Packet::BoxedMessageUpload(BoxedMessage::from_slice(payload)?)),
             pltypes::ECHO_REPLY => (Packet::EchoReply(u32::from_le_bytes(payload.try_into()?))),
@@ -194,7 +195,39 @@ impl WriteHalf {
         self.send_frame(&buf).await?;
         Ok(())
     }
+    pub async fn send_ack(&mut self, ack: &Ack, direction: Direction) -> io::Result<()>{
+        let magic = if direction == ServerToClient {pltypes::OUTGOING_MESSAGE_ACK} else {pltypes::INCOMING_MESSAGE_ACK};
+        let mut buf = [0; 4+Ack::SIZE];
+        buf[0..4].copy_from_slice(&magic.to_le_bytes());
+        ack.to_buf(&mut buf[4..]);
+        self.send_frame(&buf).await
+    }
+    pub async fn send_message(&mut self, msg: &BoxedMessage, direction: Direction) -> io::Result<()> {
+        let magic = if direction == ServerToClient {pltypes::INCOMING_MESSAGE} else {pltypes::OUTGOING_MESSAGE};
+        let mut buf = vec![0; 4 + msg.size()];
+        buf[0..4].copy_from_slice(&magic.to_le_bytes());
+        msg.to_buf(&mut buf[4..]);
+        self.send_frame(&buf).await
+    }
+    pub async fn echo_request(&mut self, seq: u32) -> io::Result<()>{
+        let mut buf = [0; 8];
+        buf[0..4].copy_from_slice(&pltypes::ECHO_REQUEST.to_le_bytes());
+        buf[4..8].copy_from_slice(&seq.to_le_bytes());
+        self.send_frame(&buf).await
+    }
+    pub async fn echo_reply(&mut self, seq: u32) -> io::Result<()>{
+        let mut buf = [0; 8];
+        buf[0..4].copy_from_slice(&pltypes::ECHO_REPLY.to_le_bytes());
+        buf[4..8].copy_from_slice(&seq.to_le_bytes());
+        self.send_frame(&buf).await
+    }
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Direction{
+    ClientToServer, ServerToClient
+}
+pub use Direction::*;
 
 #[derive(Clone, Debug)]
 pub enum Packet{
@@ -251,6 +284,12 @@ impl Envelope{
         }
         data[36.. 36+self.nickname.len()].copy_from_slice(self.nickname.as_bytes());
     }
+    pub fn recipient_ack(&self) -> Ack {
+        Ack{partner: self.recipient, message_id: self.id}
+    }
+    pub fn sender_ack(&self) -> Ack {
+        Ack{partner: self.sender, message_id: self.id}
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -293,10 +332,39 @@ impl BoxedMessage {
             }
         }
     }
+    pub fn size(&self) -> usize {
+        Envelope::SIZE + self.payload.len()
+    }
+    pub fn to_buf(&self, buf: &mut [u8]){
+        self.envelope.to_buf(buf);
+        buf[Envelope::SIZE..].copy_from_slice(&self.payload);
+    }
+    /// pad and encrypt a end to end message
+    pub fn encrypt(creds: &Credentials, nickname: &str, peer: &Peer, mut plain: Vec<u8>, flags: u32) -> Self {
+        // padding
+        let npad = rand::thread_rng().gen_range(1u8..=255);
+        plain.extend(std::iter::repeat(npad).take(npad as usize));
+
+        // encrypt
+        let n = naclbox::gen_nonce();
+        let mut encrypted = n.as_ref().to_vec();
+        encrypted.append(&mut naclbox::seal(&plain, &n, &peer.pk, &creds.sk));
+
+        let envelope = Envelope{
+            sender: creds.id,
+            recipient: peer.id,
+            id: rand::random(),
+            time: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as u32,
+            flags,
+            nickname: nickname.to_string(),
+        };
+        BoxedMessage { envelope, payload: encrypted }
+
+    }
 }
 
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Ack{
 //    pltype: u32,
     partner: ThreemaID,

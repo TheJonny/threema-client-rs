@@ -43,7 +43,8 @@ pub mod transport;
 /// (keep alive, reconnect, ack management)
 pub mod messaging_client;
 
-/// Account credentials: Threema-ID and SecretKey
+/// Own Account credentials: Threema-ID and SecretKey
+#[derive(Clone, Debug)]
 pub struct Credentials{
     pub id: ThreemaID,
     pub sk: naclbox::SecretKey,
@@ -54,6 +55,20 @@ impl Credentials{
         Ok(Credentials{id: id.try_into()?, sk})
     }
 }
+
+/// Contact Account details: Threema-ID and PublicKey
+#[derive(Clone, Debug)]
+pub struct Peer{
+    pub id: ThreemaID,
+    pub pk: naclbox::PublicKey,
+}
+
+impl Peer{
+    pub fn new(id: &str, pk: naclbox::PublicKey) -> Result<Self, InvalidID>{
+        Ok(Peer{id: id.try_into()?, pk})
+    }
+}
+
 
 /// Message types used inside end-to-end messages
 pub mod msg_types{
